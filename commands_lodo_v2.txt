@@ -1,0 +1,77 @@
+# LODO v2 pipeline — commands
+
+Days 1–5 are the **development set**. Today's capture is an **external blind test**
+(no tuning on it).
+
+## Workflow
+
+```text
+Five historical days
+→ cleaning + label QC (build_dataset)
+→ leave-one-day-out model selection (run_lodo_experiment.py)
+→ freeze preprocessing + architecture + loss weights
+→ retrain on all five days (--final)
+→ evaluate once on today's static data
+```
+
+## 1. Rebuild dataset (cleaned Days 1–5)
+
+Excludes `day5_004_standing_center_front`. Uses:
+- 600 ms causal windows, 300 ms stride
+- log amplitude + median-3 (default)
+- 9-channel features (amp + delta + rx_diff)
+- empty + sitting + standing sessions
+
+```bash
+cd /home/student2/Downloads/CSI/csi_pose_yolopose_full_pipeline/csi_pose_yolopose_pipeline
+PYTHONPATH=. .venv/bin/python -m src.build_dataset
+```
+
+## 2. LODO folds (choose filter + channels)
+
+Compare **amp9_med3** vs **amp3_nomed**:
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/run_lodo_experiment.py --variant amp9_med3
+PYTHONPATH=. .venv/bin/python scripts/run_lodo_experiment.py --variant amp3_nomed
+```
+
+Single holdout day:
+
+```bash
+CSI_CONFIG_OVERRIDES=/tmp/lodo.json PYTHONPATH=. .venv/bin/python -m src.train
+# lodo.json: {"LODO_HOLDOUT_DAY": "day4", "EXPERIMENT_TAG": "lodo_holdout_day4"}
+```
+
+## 3. Final train (all five days)
+
+After picking variant and median best epoch from LODO:
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/run_lodo_experiment.py \
+  --variant amp9_med3 --final --epochs 31
+```
+
+## 4. External blind test (today)
+
+**Do not** rebuild norm stats from today's data.
+
+```bash
+# Copy frozen checkpoint + csi_normalization_stats_*_final_all5.npz to eval script
+PYTHONPATH=. .venv/bin/python -m src.evaluate --external /path/to/today/data
+```
+
+## Config reference
+
+| Setting | Default |
+|---------|---------|
+| MODEL_NAME | `tcn_three_head_v2` |
+| TIME_WINDOW_DURATION_S | 0.6 |
+| TIME_WINDOW_STRIDE_S | 0.3 |
+| CSI_INPUT_CHANNELS | 9 |
+| CSI_MEDIAN_FILTER_KERNEL | 3 |
+| EXCLUDED_SESSIONS | `day5_004_standing_center_front` |
+| SPLIT_MODE (LODO) | `loso_day` |
+| SPLIT_MODE (final) | `final_all_days` |
+
+See `docs/LODO_V2_PIPELINE.md` for the full protocol.

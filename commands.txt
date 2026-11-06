@@ -1,0 +1,80 @@
+# CSI → human pose  |  days 1–5  |  test person 005  |  val 006
+# Config: src/config.py  (EXPERIMENT_TAG, EMPTY_*_SESSIONS, WEIGHT_DECAY, L1_WEIGHT)
+# Failures / live tips: docs/WHY_MODEL_FAILS_AND_IMPROVEMENTS.md
+
+cd ~/Downloads/CSI/csi_pose_yolopose_full_pipeline/csi_pose_yolopose_pipeline
+source .venv/bin/activate
+export PYTHONPATH=.
+
+
+# --- 0) Setup (once) ---
+# python3 -m venv .venv && source .venv/bin/activate
+# pip install -r requirements.txt
+
+
+# --- 1) Check config ---
+.venv/bin/python - <<'PY'
+from src import config
+print(config.EXPERIMENT_TAG, config.FIXED_TEST_SUBJECTS, config.FIXED_VAL_SUBJECTS)
+print("best:", config.BEST_MODEL_FILE)
+print("empty train/val/test:", len(config.EMPTY_TRAIN_SESSIONS), config.EMPTY_VAL_SESSIONS, config.EMPTY_TEST_SESSIONS)
+PY
+.venv/bin/python -m src.verify_multisession
+
+
+# --- 2) New day only (example: day5) ---
+# Put files in data/raw/csi/dayN/ and data/raw/videos/dayN/
+# Update EMPTY_* + EXPERIMENT_TAG in src/config.py first.
+
+.venv/bin/python -m src.extract_frames --day day5
+.venv/bin/python -m src.annotate_pose --day day5
+.venv/bin/python -m src.build_dataset
+.venv/bin/python -m src.inspect_dataset
+
+
+# --- 3) Full rebuild (all days; slow) ---
+# .venv/bin/python -m src.analyze_csi
+# .venv/bin/python -m src.extract_frames
+# .venv/bin/python -m src.annotate_pose
+# .venv/bin/python -m src.build_dataset
+
+
+# --- 4) Split + train + eval ---
+.venv/bin/python - <<'PY'
+from src.dataset import create_split_indices
+create_split_indices(force=True)
+print("split ready")
+PY
+
+.venv/bin/python -m src.train
+.venv/bin/python -m src.evaluate
+.venv/bin/python -m src.evaluate_by_pose --split test
+# metrics path uses EXPERIMENT_TAG from config, e.g.:
+cat outputs/evaluation/cnn_gru_multitask_sam_day5_id005_l1l2_metrics.json
+
+
+# --- 5) Deploy checkpoint to GUI (required after every train) ---
+TAG=day5_id005_l1l2   # must match src/config.py EXPERIMENT_TAG
+cp outputs/checkpoints/cnn_gru_multitask_sam_${TAG}_best.pt \
+   models/cnn_gru_multitask_sam_${TAG}_best.pt
+cp outputs/checkpoints/cnn_gru_multitask_sam_${TAG}_best.pt \
+   pose_detection_live/best_model.pt
+
+
+# --- 6) GUI / replay ---
+cd pose_detection_live
+../.venv/bin/python3 live_gui.py
+# ../.venv/bin/python3 live_gui.py --checkpoint best_model.pt
+# ../.venv/bin/python3 run_live.py --replay ../data/raw/csi/day5/000_empty_room.json
+# ../.venv/bin/python3 run_live.py --replay ../data/raw/csi/day5/005_sitting_center_front.json
+# ../.venv/bin/python3 run_live.py --replay ../data/raw/csi/day5/005_standing_center_front.json
+
+
+# --- 7) Optional: visualize / console live ---
+# cd ..
+# .venv/bin/python -m src.visualize --pose sitting --num-samples 20 --prediction-only
+# .venv/bin/python -m src.live.infer --file data/raw/csi/day5/000_empty_room_5.json --speed 0 --no-display
+
+
+# Change test person: edit FIXED_TEST_SUBJECTS / FIXED_VAL_SUBJECTS / EXPERIMENT_TAG → section 4+
+# Live fails but replay OK: RF domain mismatch — add live empty/sit/stand, retrain, section 5

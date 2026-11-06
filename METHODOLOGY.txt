@@ -1,0 +1,58 @@
+YOLO-POSE CSI HUMAN POSE METHODOLOGY
+===================================
+
+CAMERA TEACHER
+--------------
+Video (~30 FPS) -> frame extraction -> pretrained YOLO-Pose -> COCO-17 keypoints
+-> (x, y, confidence) -> normalize x/W, y/H -> SAM [2,17,17].
+
+YOLO-Pose is only used for automatic ground-truth generation. The final model input is CSI only.
+
+CPU OPTIMIZATION
+----------------
+The annotation script does not need to infer all ~30-FPS frames. By default it first reads the CSI bursts and runs YOLO-Pose only on the unique video frames nearest to usable burst timestamps. With the current data this is roughly the ~9-Hz burst targets, reducing CPU workload substantially.
+
+CSI PROCESSING
+--------------
+1 Tx x 3 Rx x 64 raw complex CSI.
+Keep homogeneous records: tx=0, rx=0/1/2, bw=0, samples=64, mode=1, ext=0.
+Group Rx0+Rx1+Rx2 -> [3,64].
+Remove permanent zero indices 27..37 -> [3,53].
+Baseline feature: amplitude |H|.
+Use training-only per-Rx/per-subcarrier Z-score normalization.
+
+TIMING / BURSTS
+---------------
+Use host_ts to group complete snapshots into bursts; typical burst size is 5.
+One model window uses the most recent 5 bursts.
+Absolute frame time = metadata.video.start_unix + frame relative timestamp.
+Pair each target CSI burst with the nearest valid YOLO-Pose frame.
+Do not assume 5 CSI samples = one video frame.
+
+SAM
+---
+Diagonal stores absolute normalized joint x/y.
+Off-diagonal stores pairwise joint displacement.
+Target/prediction shape: [2,17,17].
+
+LOSS
+----
+L = 1.0 * L_coordinate + 0.2 * L_relative_SAM.
+YOLO-Pose keypoint confidence weights supervision.
+
+MODELS
+------
+A) CNN -> FC -> SAM
+B) CNN -> GRU -> FC -> SAM (recommended baseline)
+C) CSI-Former-inspired Transformer -> FC -> SAM
+The Transformer is adapted to 1Tx x 3Rx x 53 usable CSI; it does not fabricate 3Tx geometry.
+
+EVALUATION
+----------
+Subject-independent split.
+Report normalized PCK and pixel PCK@5/10/20/30/40/50.
+Visualization: green = YOLO-Pose ground truth, red = CSI prediction.
+
+LIMITATION
+----------
+host_ts is the best current high-resolution shared timestamp, but it is host-side processing time rather than guaranteed RF acquisition time. For final real-time/continuous datasets, source/acquisition timestamping is preferable.

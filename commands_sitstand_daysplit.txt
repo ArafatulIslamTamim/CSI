@@ -1,0 +1,60 @@
+# CSI → sit/stand only | day split train 1+2+5 / val 3 / test 4 | empty excluded
+# Config: src/config.py (EXPERIMENT_TAG=day125_val3_test4_sitstand)
+# Restore 3-class model from backups/day5_id005_l1l2_*/
+
+cd ~/Downloads/CSI/csi_pose_yolopose_full_pipeline/csi_pose_yolopose_pipeline
+source .venv/bin/activate
+export PYTHONPATH=.
+
+
+# --- 0) Backup previous 3-class checkpoint (once) ---
+TAG_OLD=day5_id005_l1l2
+BACKUP=backups/${TAG_OLD}_$(date +%Y%m%d)
+mkdir -p "$BACKUP"
+cp outputs/checkpoints/cnn_gru_multitask_sam_${TAG_OLD}_best.pt "$BACKUP/" 2>/dev/null || true
+cp outputs/csi_normalization_stats_${TAG_OLD}.npz "$BACKUP/" 2>/dev/null || true
+cp pose_detection_live/best_model.pt "$BACKUP/" 2>/dev/null || true
+cp src/config.py "$BACKUP/config.py.bak" 2>/dev/null || true
+echo "Backup -> $BACKUP"
+
+
+# --- 1) Verify new experiment config ---
+.venv/bin/python tests/test_day_split_config.py
+.venv/bin/python - <<'PY'
+from src import config
+print("tag:", config.EXPERIMENT_TAG)
+print("classes:", config.POSE_CLASSES)
+print("split:", config.SPLIT_MODE, config.FIXED_TRAIN_DAYS, config.FIXED_VAL_DAYS, config.FIXED_TEST_DAYS)
+print("include_empty:", config.INCLUDE_EMPTY_ROOM_IN_DATASET)
+print("checkpoint:", config.BEST_MODEL_FILE)
+PY
+
+
+# --- 2) Rebuild NPZ without empty-room windows ---
+.venv/bin/python -m src.build_dataset
+.venv/bin/python -m src.inspect_dataset
+
+
+# --- 3) Day split (train.py recomputes CSI norm stats from train indices) ---
+.venv/bin/python - <<'PY'
+from src.dataset import create_split_indices
+create_split_indices(force=True)
+print("split ready")
+PY
+
+
+# --- 4) Train + evaluate ---
+.venv/bin/python -m src.train
+.venv/bin/python -m src.evaluate
+.venv/bin/python -m src.evaluate_by_pose --split test
+
+
+# --- 5) Deploy to GUI (after train) ---
+TAG=day125_val3_test4_sitstand
+cp outputs/checkpoints/cnn_gru_multitask_sam_${TAG}_best.pt pose_detection_live/best_model.pt
+
+
+# --- 6) Replay sanity (day4 = held-out test day) ---
+cd pose_detection_live
+../.venv/bin/python3 run_live.py --replay ../data/raw/csi/day4/005_sitting_center_front.json
+../.venv/bin/python3 run_live.py --replay ../data/raw/csi/day4/005_standing_center_front.json

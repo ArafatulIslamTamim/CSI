@@ -1,0 +1,19 @@
+{
+  "MODEL_NAME": "tcn_multitask_sam",
+  "EXPERIMENT_TAG": "day125_val3_test4_tcn_v1",
+  "WINDOW_MODE": "time_causal",
+  "TIME_WINDOW_DURATION_S": 0.5,
+  "TIME_WINDOW_SNAPSHOTS": 32,
+  "TIME_WINDOW_LINEAR_INTERP": false,
+  "TIME_WINDOW_MIN_SNAPSHOTS": 3,
+  "CSI_FEATURE_MODE": "amplitude",
+  "CSI_INPUT_CHANNELS": 3,
+  "CSI_LOCAL_NORMALIZATION": "per_snapshot_subcarrier",
+  "INCLUDE_EMPTY_ROOM_IN_DATASET": false,
+  "POSE_CLASSES": ["sitting", "standing"],
+  "NUM_POSE_CLASSES": 2,
+  "EMPTY_CLASS_INDEX": -1,
+  "POSE_REPRESENTATION": "absolute",
+  "SPLIT_MODE": "fixed_day",
+  "NORMALIZE_CSI": true
+}

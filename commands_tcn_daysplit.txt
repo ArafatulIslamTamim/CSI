@@ -1,0 +1,34 @@
+# TCN + 500ms causal windows | sit/stand only | train day1+2+5 / val day3 / test day4
+# Config: EXPERIMENT_TAG=day125_val3_test4_tcn_v1, WINDOW_MODE=time_causal
+
+cd ~/Downloads/CSI/csi_pose_yolopose_full_pipeline/csi_pose_yolopose_pipeline
+source .venv/bin/activate
+export PYTHONPATH=.
+
+# Restore in-domain 3-class model for replay (optional)
+# bash scripts/restore_backup.sh
+
+# 1) Config + parity
+.venv/bin/python tests/test_day_split_config.py
+.venv/bin/python scripts/compare_preprocess_parity.py \
+  --csi data/raw/csi/day5/005_standing_center_front.json
+
+# 2) Build time-window dataset + split
+.venv/bin/python -m src.build_dataset
+.venv/bin/python - <<'PY'
+from src.dataset import create_split_indices
+create_split_indices(force=True)
+PY
+
+# 3) Train (best.pt saved on val classification accuracy)
+.venv/bin/python -m src.train
+.venv/bin/python -m src.evaluate
+.venv/bin/python -m src.evaluate_by_pose --split test
+
+# 4) Deploy
+TAG=day125_val3_test4_tcn_v1
+cp outputs/checkpoints/tcn_multitask_sam_${TAG}_best.pt pose_detection_live/best_model.pt
+
+# 5) Replay test day
+cd pose_detection_live
+../.venv/bin/python3 run_live.py --replay ../data/raw/csi/day4/005_sitting_center_front.json
